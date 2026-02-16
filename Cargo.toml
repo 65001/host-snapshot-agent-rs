@@ -1,0 +1,3 @@
+[workspace]
+members = ["hsnap", "hsnap-purl-plugin"]
+resolver = "2"

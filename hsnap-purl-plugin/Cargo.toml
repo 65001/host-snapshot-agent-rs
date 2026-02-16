@@ -1,0 +1,12 @@
+[package]
+name = "hsnap-purl-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+packageurl = { version = "0.5.0", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+

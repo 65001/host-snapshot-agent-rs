@@ -2,6 +2,9 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use serde::Serialize;
 use sysinfo::{Components, Disks, Networks, System, Users};
+use hsnap_purl_plugin::{self, SoftwareComponent};
+
+
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -28,7 +31,10 @@ struct HostSnapshot {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     services: Vec<String>, // Placeholder
     users: Vec<UserInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    software_components: Vec<SoftwareComponent>,
 }
+
 
 #[derive(Serialize)]
 struct Metadata {
@@ -204,6 +210,7 @@ async fn main() {
                 groups: user.groups().iter().map(|g| g.name().to_string()).collect(),
             })
             .collect(),
+        software_components: hsnap_purl_plugin::run_plugins(),
     };
 
     if let Some(url) = args.url {
@@ -231,3 +238,4 @@ async fn main() {
         println!("{}", output);
     }
 }
+
