@@ -32,4 +32,22 @@
 
 
 ## Architecture
-* 
+
+### Plugin System
+The agent uses a modular plugin system to extract software components (Package URLs) from the host.
+
+#### Core Concept
+- **Plugin Trait**: Defined in `hsnap-purl-plugin`. Each plugin implements:
+    - `name()`: Unique identifier.
+    - `supported_os()`: List of supported operating systems (or `None` for all).
+    - `probes()`: List of checks (Files, Registry Keys, Commands) to run.
+    - `extract()`: detailed logic to parse probe results into Package URLs (PURLs).
+
+#### Included Plugins
+- **RhelPlugin**: Detects RPM packages on Linux via `rpm -qa`.
+- **DebianPlugin**: Detects Debian packages on Linux via `dpkg-query`.
+- **WindowsRegistryPlugin**: Detects software on Windows via Registry.
+
+### Package URL (PURL)
+Software components are identified using the [Package URL](https://github.com/package-url/purl-spec) standard.
+Example: `pkg:rpm/fedora/curl@7.50.3-1.fc25?arch=i386&distro=fedora-25`
