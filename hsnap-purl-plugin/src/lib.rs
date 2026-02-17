@@ -1,9 +1,9 @@
+use packageurl::PackageUrl;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
-use packageurl::PackageUrl;
-use serde::Serialize;
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "details")]
 pub enum SoftwareComponent {
     Purl(PackageUrl<'static>),
@@ -112,12 +112,18 @@ pub fn run_plugins() -> Vec<SoftwareComponent> {
                 Probe::File(loc) => {
                     let path_to_check = match loc {
                         FileLocation::AbsolutePath(p) => Some(PathBuf::from(p)),
-                        FileLocation::RelativePath(p) => std::env::current_dir().ok().map(|cwd| cwd.join(p)),
+                        FileLocation::RelativePath(p) => {
+                            std::env::current_dir().ok().map(|cwd| cwd.join(p))
+                        }
                         FileLocation::Path(bin_name) => {
                             if let Ok(paths) = std::env::var("PATH") {
                                 std::env::split_paths(&paths).find_map(|p| {
                                     let full_path = p.join(bin_name);
-                                    if full_path.exists() { Some(full_path) } else { None }
+                                    if full_path.exists() {
+                                        Some(full_path)
+                                    } else {
+                                        None
+                                    }
                                 })
                             } else {
                                 None
@@ -127,59 +133,70 @@ pub fn run_plugins() -> Vec<SoftwareComponent> {
 
                     if let Some(path) = path_to_check {
                         if path.exists() {
-                             probe_results.push(ProbeResult {
+                            probe_results.push(ProbeResult {
                                 probe: probe.clone(),
                                 data: ProbeData::File(path),
                             });
                         }
                     }
-                },
+                }
                 Probe::WindowsRegistry(key) => {
                     if cfg!(target_os = "windows") {
-                         #[cfg(target_os = "windows")]
-                         {
-                             use winreg::enums::*;
-                             use winreg::RegKey;
+                        #[cfg(target_os = "windows")]
+                        {
+                            use winreg::enums::*;
+                            use winreg::RegKey;
 
-                             let (root_key, subkey_path) = if key.starts_with("HKLM\\") {
-                                 (RegKey::predef(HKEY_LOCAL_MACHINE), key.trim_start_matches("HKLM\\"))
-                             } else if key.starts_with("HKCU\\") {
-                                 (RegKey::predef(HKEY_CURRENT_USER), key.trim_start_matches("HKCU\\"))
-                             } else {
-                                 // Unknown root, skip or handle error? For now skip.
-                                 (RegKey::predef(HKEY_LOCAL_MACHINE), "") 
-                             };
+                            let (root_key, subkey_path) = if key.starts_with("HKLM\\") {
+                                (
+                                    RegKey::predef(HKEY_LOCAL_MACHINE),
+                                    key.trim_start_matches("HKLM\\"),
+                                )
+                            } else if key.starts_with("HKCU\\") {
+                                (
+                                    RegKey::predef(HKEY_CURRENT_USER),
+                                    key.trim_start_matches("HKCU\\"),
+                                )
+                            } else {
+                                // Unknown root, skip or handle error? For now skip.
+                                (RegKey::predef(HKEY_LOCAL_MACHINE), "")
+                            };
 
-                             if !subkey_path.is_empty() {
-                                 if let Ok(parent_key) = root_key.open_subkey(subkey_path) {
-                                     let mut entries = Vec::new();
-                                     for name in parent_key.enum_keys().map(|x| x.unwrap_or_default()) {
-                                         if let Ok(subkey) = parent_key.open_subkey(&name) {
-                                             let display_name: Option<String> = subkey.get_value("DisplayName").ok();
-                                             let display_version: Option<String> = subkey.get_value("DisplayVersion").ok();
-                                             let publisher: Option<String> = subkey.get_value("Publisher").ok();
-                                             
-                                             if display_name.is_some() {
-                                                 entries.push(RegistryEntry {
-                                                     display_name,
-                                                     display_version,
-                                                     publisher,
-                                                 });
-                                             }
-                                         }
-                                     }
-                                     
-                                     if !entries.is_empty() {
-                                         probe_results.push(ProbeResult {
+                            if !subkey_path.is_empty() {
+                                if let Ok(parent_key) = root_key.open_subkey(subkey_path) {
+                                    let mut entries = Vec::new();
+                                    for name in
+                                        parent_key.enum_keys().map(|x| x.unwrap_or_default())
+                                    {
+                                        if let Ok(subkey) = parent_key.open_subkey(&name) {
+                                            let display_name: Option<String> =
+                                                subkey.get_value("DisplayName").ok();
+                                            let display_version: Option<String> =
+                                                subkey.get_value("DisplayVersion").ok();
+                                            let publisher: Option<String> =
+                                                subkey.get_value("Publisher").ok();
+
+                                            if display_name.is_some() {
+                                                entries.push(RegistryEntry {
+                                                    display_name,
+                                                    display_version,
+                                                    publisher,
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    if !entries.is_empty() {
+                                        probe_results.push(ProbeResult {
                                             probe: probe.clone(),
                                             data: ProbeData::RegistryEntries(entries),
                                         });
-                                     }
-                                 }
-                             }
-                         }
+                                    }
+                                }
+                            }
+                        }
                     }
-                },
+                }
                 Probe::Command(cmd_str) => {
                     let output = if cfg!(target_os = "windows") {
                         Command::new("cmd").args(["/C", cmd_str]).output()
@@ -189,9 +206,11 @@ pub fn run_plugins() -> Vec<SoftwareComponent> {
 
                     if let Ok(out) = output {
                         if out.status.success() {
-                             probe_results.push(ProbeResult {
+                            probe_results.push(ProbeResult {
                                 probe: probe.clone(),
-                                data: ProbeData::CommandOutput(String::from_utf8_lossy(&out.stdout).to_string()),
+                                data: ProbeData::CommandOutput(
+                                    String::from_utf8_lossy(&out.stdout).to_string(),
+                                ),
                             });
                         }
                     }

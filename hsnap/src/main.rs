@@ -1,17 +1,15 @@
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use serde::Serialize;
-use sysinfo::{Components, Disks, Networks, System, Users};
 use hsnap_purl_plugin::{self, SoftwareComponent};
-
-
+use reqwest::Client;
+use rsa::pkcs1::DecodeRsaPrivateKey;
+use rsa::{Pkcs1v15Sign, RsaPrivateKey};
+use serde::{Deserialize, Serialize};
+use sysinfo::{Components, Disks, Networks, System, Users};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "false")]
-    pretty: bool,
-
     /// ID to map hsnap to a host. Defaults to hostname if not provided.
     #[arg(long)]
     id: Option<String>,
@@ -19,9 +17,20 @@ struct Args {
     /// URL to POST the JSON data to.
     #[arg(long)]
     url: Option<String>,
+
+    /// The private key used to sign this data, as a string.
+    #[arg(long)]
+    signing_key: Option<String>,
 }
 
 #[derive(Serialize)]
+struct SignedSnapshot {
+    snapshot: HostSnapshot,
+    // The signature is serialized as a Hex string (default for rsa+serde)
+    signature: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct HostSnapshot {
     metadata: Metadata,
     hardware: HardwareInfo,
@@ -35,22 +44,21 @@ struct HostSnapshot {
     software_components: Vec<SoftwareComponent>,
 }
 
-
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Metadata {
     // The user will provide this id, to map hsnap to a host. If not provided, the hsnap will use the hostname
     id: String,
     timestamp: DateTime<Utc>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct HardwareInfo {
     cpu_info: Vec<CpuInfo>,
     memory: MemoryInfo,
     components: Vec<ComponentInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct CpuInfo {
     name: String,
     vendor_id: String,
@@ -59,7 +67,7 @@ struct CpuInfo {
     usage: f32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct MemoryInfo {
     total_memory: u64,
     used_memory: u64,
@@ -67,13 +75,13 @@ struct MemoryInfo {
     used_swap: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct ComponentInfo {
     label: String,
     temperature: Option<f32>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct OperatingSystemInfo {
     os_name: Option<String>,
     os_version: Option<String>,
@@ -81,24 +89,24 @@ struct OperatingSystemInfo {
     host_name: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct NetworkInfo {
     interfaces: Vec<NetworkInterface>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct NetworkInterface {
     name: String,
     mac_address: String,
     ips: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct StorageInfo {
     disks: Vec<DiskInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct DiskInfo {
     name: String,
     kind: String,
@@ -109,7 +117,7 @@ struct DiskInfo {
     is_removable: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct UserInfo {
     name: String,
     id: String,
@@ -120,6 +128,79 @@ struct UserInfo {
 async fn main() {
     let args = Args::parse();
 
+    // Normal Capture Mode (with optional signing)
+    let snapshot: HostSnapshot = capture_snapshot(&args).await;
+
+    let signed_snapshot = match &args.signing_key {
+        Some(private_key_pem) => {
+            let private_key = RsaPrivateKey::from_pkcs1_pem(&private_key_pem)
+                .expect("Failed to parse private key");
+            let schema = Pkcs1v15Sign::new_unprefixed();
+            let snapshot_bytes =
+                serde_json::to_vec(&snapshot).expect("Failed to serialize snapshot");
+            let signature = private_key
+                .sign(schema, snapshot_bytes.as_slice())
+                .expect("Unable to sign snapshot with private key");
+
+            let string_signature = hex::encode(&signature);
+
+            Some(SignedSnapshot {
+                snapshot: snapshot.clone(),
+                signature: string_signature,
+            })
+        }
+        None => None,
+    };
+
+    match (&args.url, &signed_snapshot) {
+        (Some(url), Some(signed_snapshot)) => {
+            //Post the signed snapshot to the given url
+            let client = reqwest::Client::new();
+            post_data(client, url, signed_snapshot).await;
+        }
+        (Some(url), None) => {
+            //Post the original snapshot to the given url
+            let client = reqwest::Client::new();
+            post_data(client, url, snapshot).await;
+        }
+        (None, Some(signed_snapshot)) => {
+            //Pretty print the signed snapshot to stdout
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&signed_snapshot)
+                    .expect("Failed to serialize signed snapshot")
+            );
+        }
+        (None, None) => {
+            //Pretty print the original snapshot to stdout
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&snapshot).expect("Failed to seralize snapshot")
+            );
+        }
+    }
+}
+
+async fn post_data<T: Serialize + Sized>(client: Client, url: &String, json: T) {
+    match client.post(url).json(&json).send().await {
+        Ok(res) => {
+            if res.status().is_success() {
+                println!("Successfully sent snapshot to {}", url);
+            } else {
+                eprintln!(
+                    "Failed to send snapshot to {}: Status {}",
+                    url,
+                    res.status()
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("Error sending snapshot to {}: {}", url, e)
+        }
+    }
+}
+
+async fn capture_snapshot(args: &Args) -> HostSnapshot {
     // Initialize sysinfo structures
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -132,11 +213,11 @@ async fn main() {
     // Determine Host ID: Argument > Hostname > "unknown"
     let host_id = args
         .id
+        .clone()
         .or_else(|| System::host_name())
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Collect Data
-    let snapshot = HostSnapshot {
+    HostSnapshot {
         metadata: Metadata {
             id: host_id,
             timestamp: Utc::now(),
@@ -211,31 +292,5 @@ async fn main() {
             })
             .collect(),
         software_components: hsnap_purl_plugin::run_plugins(),
-    };
-
-    if let Some(url) = args.url {
-        let client = reqwest::Client::new();
-        match client.post(&url).json(&snapshot).send().await {
-            Ok(res) => {
-                if res.status().is_success() {
-                    println!("Successfully sent snapshot to {}", url);
-                } else {
-                    eprintln!(
-                        "Failed to send snapshot to {}: Status {}",
-                        url,
-                        res.status()
-                    );
-                }
-            }
-            Err(e) => eprintln!("Error sending snapshot to {}: {}", url, e),
-        }
-    } else {
-        let output = if args.pretty {
-            serde_json::to_string_pretty(&snapshot).unwrap()
-        } else {
-            serde_json::to_string(&snapshot).unwrap()
-        };
-        println!("{}", output);
     }
 }
-
