@@ -33,9 +33,3 @@ hex = "0.4.3"
 # Plugins
 hsnap-purl-plugin = { path = "../hsnap-purl-plugin" }
 packageurl = { version = "0.5.0", features = ["serde"] }
-
-[profile.release]
-strip = true
-lto = true
-codegen-units = 1
-panic = "abort"

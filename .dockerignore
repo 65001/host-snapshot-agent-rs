@@ -1,0 +1,7 @@
+target/
+.git/
+.cargo/
+.idea/
+.vscode/
+*.exe
+docs/
