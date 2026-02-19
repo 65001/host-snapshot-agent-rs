@@ -29,6 +29,9 @@
 
 The agent will only run when invoked by a user or a scheduler, and will immediately terminate. It is not written to be persistent.
 
+* Read-only: performs no write operations to the filesystem or system configuration.
+* Memory safe: written in Rust, with statically linked binaries with no runtime dependencies on the target host.
+
 ## Connections
 
 The agent will only make a connection to the specified url, only when the `--url` flag is passed. Otherwise it will only write to `stdout`.
