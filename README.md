@@ -19,16 +19,22 @@
 * x86_64
 * arm64
 
-## Agent Todo Features
-* Be able to extract metadata from the host
-* Be able to extract hardware information from the host
-* Be able to extract software information from the host
-* Be able to extract network information from the host
-* Be able to extract storage information from the host
-* Be able to extract process information from the host
-* Be able to extract service information from the host
-* Be able to extract user information from the host
-* Be able to extract system information from the host
+## Capabilities
+* Extract metadata from the host
+* Extract hardware information from the host
+* Extract software information from the host
+* Extract network information from the host
+* Extract storage information from the host
+* Extract user information from the host
+* Extract operating system information from the host
+
+## Security
+
+The agent will only run when invoked by a user or a scheduler, and will immediately terminate. It is not written to be persistent.
+
+## Connections
+
+The agent will only make a connection to the specified url, only when the `--url` flag is passed. Otherwise it will only write to `stdout`.
 
 
 ## Architecture
