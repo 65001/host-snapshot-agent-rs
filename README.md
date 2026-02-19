@@ -10,9 +10,6 @@
 * Linux
     * RHEL
     * Ubuntu
-    * Alpine
-    * Debian
-    * Amazon
 * Windows
 
 ## Covered Architectures
